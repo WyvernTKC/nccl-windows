@@ -73,6 +73,19 @@ ncclResult_t ncclAsyncLaunch(struct ncclAsyncJob* job, ncclResult_t (*func)(stru
   return ret;
 }
 
+// Let async job threads progress. On Windows any sleep_for rounds up to the scheduler tick
+// (1-16 ms), which dwarfs short jobs such as runtime preconnect, so yield for the first part of
+// a wait and only then fall back to sleeping.
+static void asyncJobWaitBackoff(std::chrono::steady_clock::time_point waitStart) {
+#if defined(NCCL_OS_WINDOWS)
+  if (std::chrono::steady_clock::now() - waitStart < std::chrono::milliseconds(50)) {
+    std::this_thread::yield();
+    return;
+  }
+#endif
+  std::this_thread::sleep_for(std::chrono::microseconds(1));
+}
+
 ncclResult_t ncclGroupJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &ncclAsyncJob::next>* asyncJobsMain,
                                 volatile bool* groupAbortFlag) {
   ncclResult_t ret = ncclSuccess;
@@ -92,6 +105,7 @@ ncclResult_t ncclGroupJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &nccl
       job = job->next;
     } while (job != nullptr);
 
+    auto waitStart = std::chrono::steady_clock::now();
     do {
       jobsDone = true;
       job = ncclIntruQueueHead(asyncJobsMain);
@@ -128,7 +142,7 @@ ncclResult_t ncclGroupJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &nccl
         job = job->next;
       } while (job != nullptr);
       // Let preconnect threads progress.
-      if (jobsDone == false) std::this_thread::sleep_for(std::chrono::microseconds(1));
+      if (jobsDone == false) asyncJobWaitBackoff(waitStart);
     } while (jobsDone == false);
 
     if (ret != ncclSuccess) goto fail;
@@ -625,6 +639,7 @@ static ncclResult_t asyncJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &n
       job = job->next;
     } while (job != nullptr);
 
+    auto waitStart = std::chrono::steady_clock::now();
     do {
       jobsDone = true;
       job = ncclIntruQueueHead(asyncJobsMain);
@@ -665,7 +680,7 @@ static ncclResult_t asyncJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &n
         job = job->next;
       } while (job != nullptr);
       // Let preconnect threads progress.
-      if (jobsDone == false) std::this_thread::sleep_for(std::chrono::microseconds(1));
+      if (jobsDone == false) asyncJobWaitBackoff(waitStart);
     } while (jobsDone == false);
 
     if (ret != ncclSuccess) goto fail;
