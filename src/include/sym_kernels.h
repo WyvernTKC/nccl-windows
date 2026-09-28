@@ -220,7 +220,7 @@ constexpr int ncclSymkMultimemDeepBytePerChunk = ncclSymkGetBytesPerChunk(1, ncc
 
 // Spread concurrent MC operations across different addresses to avoid contention.
 constexpr int ncclSymkMcPerRankOffsetBytes = 32 * 1024 * 1024;
-static_assert(ncclSymkMcPerRankOffsetBytes % ncclSymkMultimemDeepBytePerChunk == 0);
+static_assert(ncclSymkMcPerRankOffsetBytes % ncclSymkMultimemDeepBytePerChunk == 0, "MC per-rank offset must be a multiple of the deep chunk");
 
 // Deep loop when input/output are 256 B-aligned
 constexpr int ncclSymkAlign256BDeepUnrollPacks = 16;
